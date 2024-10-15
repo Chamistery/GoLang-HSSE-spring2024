@@ -1,32 +1,33 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"net/http"
-	client "task2/realization/client"
+	"task2/realization/client"
 	"time"
 )
 
 func main() {
-	curr_client := &http.Client{}
+	totalTimeout := 15 * time.Second
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+	apiClient := client.NewAPIClient("http://localhost:8082", totalTimeout)
 
-	version, err := client.CallVersion(curr_client, ctx)
+	version, err := apiClient.CallVersion()
 	if err != nil {
 		log.Fatalf("Error in /version: %v", err)
 	}
-	fmt.Printf("%s\n", version)
+	fmt.Printf("Version: %s\n", version)
 
-	decoded, err := client.CallDecode(curr_client, ctx, "SGVsbG8gd29ybGQ=")
+	decoded, err := apiClient.CallDecode("SGVsbG8gd29ybGQ=")
 	if err != nil {
 		log.Fatalf("Error in /decode: %v", err)
 	}
-	fmt.Printf("%s\n", decoded)
+	fmt.Printf("Decoded string: %s\n", decoded)
 
-	success, status := client.CallHardOp(curr_client, ctx)
-	fmt.Printf("%v, %d\n", success, status)
+	success, status := apiClient.CallHardOp()
+	if !success {
+		log.Printf("Hard operation failed with status code: %d\n", status)
+	} else {
+		fmt.Printf("Hard operation succeeded with status code: %d\n", status)
+	}
 }

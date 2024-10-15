@@ -5,66 +5,97 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"log"
+	"io"
 	"net/http"
+	"time"
 )
 
-func CallVersion(client *http.Client, ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost:8081/version", nil)
+type APIClient struct {
+	BaseURL    string
+	HTTPClient *http.Client
+	Timeout    time.Duration
+}
+
+func NewAPIClient(baseURL string, timeout time.Duration) *APIClient {
+	return &APIClient{
+		BaseURL:    baseURL,
+		HTTPClient: &http.Client{},
+		Timeout:    timeout,
+	}
+}
+
+func (c *APIClient) CallVersion() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/version", nil)
 	if err != nil {
 		return "", err
 	}
 
-	resp, err := client.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
 	return string(body), nil
 }
 
-func CallDecode(client *http.Client, ctx context.Context, input string) (string, error) {
-	data := map[string]string{"inputString": input}
-	jsonData, _ := json.Marshal(data)
+func (c *APIClient) CallDecode(input string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
+	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "POST", "http://localhost:8081/decode", bytes.NewBuffer(jsonData))
+	data := map[string]string{"inputString": input}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/decode", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := client.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	var result map[string]string
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
 
-	return result["outputString"], nil // Вернем декодированную строку
+	return result["outputString"], nil
 }
 
-func CallHardOp(client *http.Client, ctx context.Context) (bool, int) {
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost:8081/hard-op", nil)
+func (c *APIClient) CallHardOp() (bool, int) {
+	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/hard-op", nil)
 	if err != nil {
-		log.Fatalf("Error creating /hard-op request: %v", err)
+		fmt.Printf("Error creating /hard-op request: %v\n", err)
 		return false, 0
 	}
 
-	resp, err := client.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			fmt.Println("Request timed out")
-			return false, 500
+			return false, http.StatusInternalServerError
 		}
-		log.Fatalf("Error in /hard-op: %v", err)
+		fmt.Printf("Error in /hard-op: %v\n", err)
 		return false, 0
 	}
 	defer resp.Body.Close()
 
-	return true, resp.StatusCode
+	return true, http.StatusOK
 }
